@@ -33,8 +33,18 @@ import print_default_judge_models as default_judge_audit  # noqa: E402
 
 DEFAULT_CSV = REPO_ROOT / 'default_judge_models.csv'
 DEFAULT_COLUMN = 'codex_inferred_judge_model'
+CONFIDENCE_COLUMN = 'codex_inferred_confidence'
+SOURCE_COLUMN = 'codex_inferred_source'
+FINAL_DEFAULT_COLUMN = 'final_default_judge_model'
+REVIEW_STATUS_COLUMN = 'codex_review_status'
+LAST_MESSAGE_COLUMN = 'codex_last_message_path'
 MODEL_RESULT_COLUMNS = {
     'default_judge_model',
+    CONFIDENCE_COLUMN,
+    SOURCE_COLUMN,
+    FINAL_DEFAULT_COLUMN,
+    REVIEW_STATUS_COLUMN,
+    LAST_MESSAGE_COLUMN,
     'run_judge_model',
     'class_default_judge',
     'evaluate_default_judge_model',
@@ -93,6 +103,46 @@ def parse_args():
         '--column',
         default=DEFAULT_COLUMN,
         help=f'Column to write. Defaults to {DEFAULT_COLUMN}.',
+    )
+    parser.add_argument(
+        '--final-column',
+        default=FINAL_DEFAULT_COLUMN,
+        help=(
+            'Column to write the final merged default judge model. Defaults to '
+            f'{FINAL_DEFAULT_COLUMN}.'
+        ),
+    )
+    parser.add_argument(
+        '--confidence-column',
+        default=CONFIDENCE_COLUMN,
+        help=(
+            'Column to write Codex confidence. Defaults to '
+            f'{CONFIDENCE_COLUMN}.'
+        ),
+    )
+    parser.add_argument(
+        '--source-column',
+        default=SOURCE_COLUMN,
+        help=(
+            'Column to write Codex source-based reason. Defaults to '
+            f'{SOURCE_COLUMN}.'
+        ),
+    )
+    parser.add_argument(
+        '--review-status-column',
+        default=REVIEW_STATUS_COLUMN,
+        help=(
+            'Column that records whether Codex has reviewed the row. Defaults '
+            f'to {REVIEW_STATUS_COLUMN}.'
+        ),
+    )
+    parser.add_argument(
+        '--last-message-column',
+        default=LAST_MESSAGE_COLUMN,
+        help=(
+            'Column to write the kept Codex last-message JSON path. Defaults '
+            f'to {LAST_MESSAGE_COLUMN}.'
+        ),
     )
     parser.add_argument(
         '--data',
@@ -161,6 +211,14 @@ def parse_args():
         action='store_true',
         help='Print selected rows and the first prompt without calling Codex or writing CSV.',
     )
+    parser.add_argument(
+        '--refresh-final-only',
+        action='store_true',
+        help=(
+            'Do not call Codex. Only refresh --final-column from --column and '
+            'default_judge_model, then write the CSV.'
+        ),
+    )
     return parser.parse_args()
 
 
@@ -192,6 +250,40 @@ def write_csv_atomic(path, rows, fieldnames):
         except OSError:
             pass
         raise
+
+
+def ensure_column(rows, fieldnames, column):
+    if column not in fieldnames:
+        fieldnames.append(column)
+    for row in rows:
+        row.setdefault(column, '')
+
+
+def merged_default_judge_model(row, codex_column):
+    codex_model = row.get(codex_column, '')
+    if codex_model and not codex_model.startswith('__ERROR__:'):
+        return codex_model
+    return row.get('default_judge_model', '')
+
+
+def refresh_final_default_judge_models(rows, codex_column, final_column):
+    for row in rows:
+        row[final_column] = merged_default_judge_model(row, codex_column)
+
+
+def codex_review_status(model):
+    if model.startswith('__ERROR__:'):
+        return 'error'
+    return 'reviewed'
+
+
+def codex_result(model, confidence='', source='', last_message_path=None):
+    return {
+        'model': model,
+        'confidence': confidence,
+        'source': source,
+        'last_message_path': str(last_message_path) if last_message_path else '',
+    }
 
 
 def get_source_block(title, obj):
@@ -486,6 +578,8 @@ def select_row_indices(rows, args):
         if not args.all and not row_needs_review(row):
             continue
         if not args.force:
+            if row.get(args.review_status_column) == 'reviewed':
+                continue
             current = row.get(args.column, '')
             if current and not current.startswith('__ERROR__:'):
                 continue
@@ -545,7 +639,10 @@ async def run_codex_one(args, schema_path, prompt, row_index, dataset_name):
         if process.returncode != 0:
             message = (stderr.decode(errors='replace') or stdout.decode(errors='replace'))
             message = message.replace('\n', ' ')[:240]
-            return f'__ERROR__:CodexExit{process.returncode}:{message}'
+            return codex_result(
+                f'__ERROR__:CodexExit{process.returncode}:{message}',
+                last_message_path=last_message_path if args.keep_last_messages else None,
+            )
 
         if last_message_path.exists():
             raw = last_message_path.read_text()
@@ -554,8 +651,16 @@ async def run_codex_one(args, schema_path, prompt, row_index, dataset_name):
         data = parse_json_object(raw)
         validation_error = validate_codex_result(data)
         if validation_error:
-            return validation_error
-        return normalize_model_value(data.get('model'))
+            return codex_result(
+                validation_error,
+                last_message_path=last_message_path if args.keep_last_messages else None,
+            )
+        return codex_result(
+            normalize_model_value(data.get('model')),
+            data.get('confidence', ''),
+            data.get('source', ''),
+            last_message_path if args.keep_last_messages else None,
+        )
     except asyncio.TimeoutError:
         if process:
             if process.returncode is None:
@@ -564,18 +669,27 @@ async def run_codex_one(args, schema_path, prompt, row_index, dataset_name):
                 try:
                     await asyncio.wait_for(process.wait(), timeout=5)
                 except asyncio.TimeoutError:
-                    return (
-                        '__ERROR__:Timeout:codex exec exceeded '
-                        f'{args.timeout} seconds and did not exit after SIGKILL'
+                    return codex_result(
+                        (
+                            '__ERROR__:Timeout:codex exec exceeded '
+                            f'{args.timeout} seconds and did not exit after SIGKILL'
+                        ),
+                        last_message_path=last_message_path if args.keep_last_messages else None,
                     )
-        return f'__ERROR__:Timeout:codex exec exceeded {args.timeout} seconds'
+        return codex_result(
+            f'__ERROR__:Timeout:codex exec exceeded {args.timeout} seconds',
+            last_message_path=last_message_path if args.keep_last_messages else None,
+        )
     except asyncio.CancelledError:
         await kill_process(process)
         raise
     except Exception as err:
         await kill_process(process)
         message = str(err).replace('\n', ' ')[:240]
-        return f'__ERROR__:{err.__class__.__name__}:{message}'
+        return codex_result(
+            f'__ERROR__:{err.__class__.__name__}:{message}',
+            last_message_path=last_message_path if args.keep_last_messages else None,
+        )
     finally:
         if process is not None:
             close_process_transport(process)
@@ -590,11 +704,13 @@ async def run_inference(args, rows, fieldnames):
     resolver = build_dataset_resolver()
     run_context = build_run_context(resolver)
     indices = select_row_indices(rows, args)
+    refresh_final_default_judge_models(rows, args.column, args.final_column)
+    output_path = args.output or args.csv
     if not indices:
         print('No rows selected.', file=sys.stderr)
+        write_csv_atomic(output_path, rows, fieldnames)
         return
 
-    output_path = args.output or args.csv
     semaphore = asyncio.Semaphore(args.concurrency)
     completed = 0
     started_at = time.time()
@@ -624,8 +740,17 @@ async def run_inference(args, rows, fieldnames):
 
         tasks = [asyncio.create_task(worker(idx)) for idx in indices]
         for task in asyncio.as_completed(tasks):
-            row_index, model = await task
+            row_index, result = await task
+            model = result['model']
             rows[row_index][args.column] = model
+            rows[row_index][args.confidence_column] = result['confidence']
+            rows[row_index][args.source_column] = result['source']
+            rows[row_index][args.last_message_column] = result['last_message_path']
+            rows[row_index][args.review_status_column] = codex_review_status(model)
+            rows[row_index][args.final_column] = merged_default_judge_model(
+                rows[row_index],
+                args.column,
+            )
             completed += 1
             dataset = rows[row_index].get('dataset', f'row-{row_index}')
             elapsed = time.time() - started_at
@@ -636,6 +761,7 @@ async def run_inference(args, rows, fieldnames):
             if args.checkpoint_every > 0 and completed % args.checkpoint_every == 0:
                 write_csv_atomic(output_path, rows, fieldnames)
 
+    refresh_final_default_judge_models(rows, args.column, args.final_column)
     write_csv_atomic(output_path, rows, fieldnames)
 
 
@@ -652,11 +778,14 @@ def main():
         print(f'Resuming from existing output CSV: {input_path}', file=sys.stderr)
 
     rows, fieldnames = read_csv(input_path)
-    if args.column not in fieldnames:
-        fieldnames.append(args.column)
-        for row in rows:
-            row.setdefault(args.column, '')
-    elif args.output is None:
+    had_result_column = args.column in fieldnames
+    ensure_column(rows, fieldnames, args.column)
+    ensure_column(rows, fieldnames, args.confidence_column)
+    ensure_column(rows, fieldnames, args.source_column)
+    ensure_column(rows, fieldnames, args.final_column)
+    ensure_column(rows, fieldnames, args.review_status_column)
+    ensure_column(rows, fieldnames, args.last_message_column)
+    if had_result_column and args.output is None:
         completed = sum(
             1
             for row in rows
@@ -669,6 +798,11 @@ def main():
                 '--output path when the input CSV changes.',
                 file=sys.stderr,
             )
+
+    if args.refresh_final_only:
+        refresh_final_default_judge_models(rows, args.column, args.final_column)
+        write_csv_atomic(args.output or args.csv, rows, fieldnames)
+        return
 
     if args.dry_run:
         resolver = build_dataset_resolver()
