@@ -20,6 +20,7 @@ from .chartqapro import ChartQAPro
 from .chartx import ChartX
 from .charxiv import CharXiv
 from .cmmmu import CMMMU
+from .c4_bench import C4Bench
 from .creation import CreationMMBenchDataset
 from .da2k import DA2K
 from .design2code import Design2Code
@@ -310,7 +311,7 @@ IMAGE_DATASET = [
     SciDocBench, OmniMat,
     MMRarebenchDiagnosis, MMRarebenchTreatment, MMRarebenchCrossmodal, MMRarebenchExamination,
     MRareBenchDiagnosis, MRareBenchEvidenceVerif,
-    BabyVision, SUPERChemDataset,
+    BabyVision, SUPERChemDataset, C4Bench,
 ]
 
 # add by EASI team
