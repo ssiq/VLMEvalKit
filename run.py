@@ -361,6 +361,7 @@ def get_judge_kwargs(args, *, dataset):
     else:
         default_model = dataset.get_default_judge_model(judge_kwargs)
         validate_default_judge_model(default_model)
+        judge_kwargs['model'] = "gpt-4o-mini"
         if default_model is not None and not model_from_judge_args:
             judge_kwargs['model'] = default_model
         elif model_from_judge_args:
