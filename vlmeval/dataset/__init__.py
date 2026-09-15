@@ -102,6 +102,7 @@ from .mvu_eval import MVUEval
 from .NPMM import NPMM
 from .oceanocr import OceanOCRBench
 from .olmOCRBench.olmocrbench import olmOCRBench
+from .omni_cloze import OmniCloze
 from .OmniDocBench.omnidocbench import OmniDocBench
 from .omnimat import OmniMat
 from .omnispatialbench import OmniSpatialBench
@@ -325,7 +326,7 @@ VIDEO_DATASET = [
     Video_MMLU_CAP, Video_MMLU_QA,
     Video_Holmes, VCRBench, CGAVCounting,
     EgoExoBench_MCQ, DREAM, VideoTT, VideoMMMU, MVUEval, OMTGBench, V2PBench, AVSpeakerBench,
-    VideoMMEv2, ReVSI
+    VideoMMEv2, ReVSI, OmniCloze
 ]
 
 # add by EASI team

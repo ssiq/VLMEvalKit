@@ -312,6 +312,10 @@ omtg_dataset = {
     "OMTGBench_2fps": partial(OMTGBench, dataset="OMTGBench", fps=2.0),
 }
 
+omni_cloze_dataset = {
+    'Omni-Cloze': partial(OmniCloze, dataset='Omni-Cloze'),
+}
+
 mvu_eval_dataset = {
     'MVU-Eval_8frame': partial(MVUEval, dataset='MVU-Eval', nframe=8),
     'MVU-Eval_16frame': partial(MVUEval, dataset='MVU-Eval', nframe=16),
@@ -388,7 +392,7 @@ dataset_groups = [
     longvideobench_dataset, mlvu_dataset, tempcompass_dataset, cgbench_dataset, worldsense_dataset, tamperbench_dataset,
     megabench_dataset, qbench_video_dataset, moviechat1k_dataset, vdc_dataset, video_holmes_dataset, vcrbench_dataset,
     cg_av_counting_dataset, video_mmlu_dataset, egoexobench_dataset, dream_1k_dataset, video_tt_dataset,
-    video_vsi_dataset, mvu_eval_dataset, omtg_dataset, v2pbench_dataset, av_speakerbench_dataset
+    video_vsi_dataset, mvu_eval_dataset, omtg_dataset, omni_cloze_dataset, v2pbench_dataset, av_speakerbench_dataset
 ]
 
 # add by EASI team

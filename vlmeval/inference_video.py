@@ -5,6 +5,7 @@ import warnings
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.distributed as dist
 from tqdm import tqdm
@@ -248,6 +249,8 @@ def infer_data_job_video(model,
         if retry_failed:
             if rank == 0:
                 data = load(result_file)
+                if isinstance(data, list):
+                    data = pd.DataFrame(data)
                 results = {k: v for k, v in zip(data['index'], data['prediction'])}
                 results = {k: v for k, v in results.items() if FAIL_MSG not in str(v)}
                 if len(results) == len(data):
