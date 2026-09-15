@@ -55,7 +55,7 @@ class OmniCloze(VideoBaseDataset):
     VIDEO_ARCHIVE_GLOB = 'videos.part*.tar'
     TYPE = 'Video-VQA'
     MODALITY = 'VIDEO'
-    DEFAULT_JUDGE = 'gpt-4o-1120'
+    DEFAULT_JUDGE_MODEL = 'gpt-4o-1120'
     DEFAULT_BLANKS = 30
     FAIL_MSG = 'Failed to obtain answer via API.'
 
@@ -432,7 +432,7 @@ Output:
 
     def evaluate(self, eval_file, **judge_kwargs):
         judge_kwargs = dict(judge_kwargs)
-        judge_name = judge_kwargs.pop('model', None) or self.DEFAULT_JUDGE
+        judge_name = judge_kwargs.pop('model', None) or self.DEFAULT_JUDGE_MODEL
         nproc = judge_kwargs.pop('nproc', 4)
         number = int(judge_kwargs.pop('number', self.DEFAULT_BLANKS))
         modality = judge_kwargs.pop('modality', 'audio-visual')
